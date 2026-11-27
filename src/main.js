@@ -1,5 +1,12 @@
 import * as THREE from 'three';
 import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
+import { GTAOPass } from 'three/addons/postprocessing/GTAOPass.js';
+import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
+import { FXAAShader } from 'three/addons/shaders/FXAAShader.js';
 import { VIEWPOINTS, detectRoom } from './planData.js';
 import { createTextures } from './textures.js';
 import { buildRoom } from './roomBuilder.js';
@@ -18,6 +25,8 @@ const minimapCanvas = document.getElementById('minimap-canvas');
 const btnModeFps = document.getElementById('btn-mode-fps');
 const btnModeOrbit = document.getElementById('btn-mode-orbit');
 const btnCurtains = document.getElementById('btn-curtains');
+const btnArchviz = document.getElementById('btn-archviz');
+const btnSnapshot = document.getElementById('btn-snapshot');
 const btnDimensions = document.getElementById('btn-dimensions');
 const btnPlan = document.getElementById('btn-plan');
 const btnPointerLock = document.getElementById('btn-pointer-lock');
@@ -32,21 +41,23 @@ const renderer = new THREE.WebGLRenderer({
   antialias: true,
   powerPreference: 'high-performance',
 });
-renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.toneMapping = THREE.ACESFilmicToneMapping;
-renderer.toneMappingExposure = 1.08;
+renderer.shadowMap.autoUpdate = false;
+renderer.shadowMap.needsUpdate = true;
+renderer.toneMapping = THREE.AgXToneMapping;
+renderer.toneMappingExposure = 1.06;
 
 // --- SCENE & CAMERA ---
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.06, 120);
 
-// Physically-based environment lighting for realistic glass, chrome & oak sheen
 const pmrem = new THREE.PMREMGenerator(renderer);
-scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-scene.environmentIntensity = 0.42;
+let currentEnvRT = pmrem.fromScene(new RoomEnvironment(), 0.04);
+scene.environment = currentEnvRT.texture;
+scene.environmentIntensity = 0.62;
 
 // --- BUILD WORLD ---
 const maxAniso = Math.min(8, renderer.capabilities.getMaxAnisotropy());
@@ -58,6 +69,103 @@ const furnitureRig = buildFurniture(textures);
 scene.add(furnitureRig.root);
 
 const lighting = createLighting(scene, renderer, roomRig, furnitureRig);
+
+// --- DYNAMIC STUDIO CUBEMAP PROBE (REAL ROOM REFLECTIONS ON FLOOR & METALS) ---
+const cubeRT = new THREE.WebGLCubeRenderTarget(128, {
+  generateMipmaps: true,
+  minFilter: THREE.LinearMipmapLinearFilter,
+  type: THREE.HalfFloatType,
+});
+const cubeCamera = new THREE.CubeCamera(0.15, 35, cubeRT);
+cubeCamera.position.set(2.0, 1.35, 2.0);
+scene.add(cubeCamera);
+
+function refreshStudioIBL() {
+  const prevMirrorVis = roomRig.reflector.visible;
+  const prevShaftsVis = roomRig.sunShaftsGroup.visible;
+  const prevGuidesVis = roomRig.guidesGroup.visible;
+  roomRig.reflector.visible = false;
+  roomRig.sunShaftsGroup.visible = false;
+  roomRig.guidesGroup.visible = false;
+
+  cubeCamera.update(renderer, scene);
+
+  roomRig.reflector.visible = prevMirrorVis;
+  roomRig.sunShaftsGroup.visible = prevShaftsVis;
+  roomRig.guidesGroup.visible = prevGuidesVis;
+
+  const nextEnvRT = pmrem.fromCubemap(cubeRT.texture);
+  scene.environment = nextEnvRT.texture;
+  scene.environmentIntensity = 0.75;
+  if (currentEnvRT) currentEnvRT.dispose();
+  currentEnvRT = nextEnvRT;
+}
+
+// --- ARCHVIZ POST-PROCESSING PIPELINE (GTAO + BLOOM + AgX + FXAA) ---
+let archvizEnabled = true;
+
+const composer = new EffectComposer(renderer);
+const renderPass = new RenderPass(scene, camera);
+composer.addPass(renderPass);
+
+const gtaoPass = new GTAOPass(
+  scene,
+  camera,
+  Math.max(320, Math.floor(window.innerWidth * 0.65)),
+  Math.max(240, Math.floor(window.innerHeight * 0.65))
+);
+gtaoPass.output = GTAOPass.OUTPUT.Default;
+gtaoPass.blendIntensity = 0.62;
+gtaoPass.pdRings = 1;
+gtaoPass.pdRadiusExponent = 2;
+gtaoPass.pdSamples = 8;
+gtaoPass.updateGtaoMaterial({
+  radius: 0.36,
+  distanceExponent: 1.45,
+  thickness: 1.0,
+  scale: 1.05,
+  samples: 8,
+  distanceFallOff: 1.0,
+});
+
+const origGtaoRender = gtaoPass.render.bind(gtaoPass);
+gtaoPass.render = (rend, writeBuffer, readBuffer, deltaTime, maskActive) => {
+  const hidden = [];
+  scene.traverse((obj) => {
+    if (obj.userData?.skipAO && obj.visible) {
+      obj.visible = false;
+      hidden.push(obj);
+    }
+  });
+  try {
+    origGtaoRender(rend, writeBuffer, readBuffer, deltaTime, maskActive);
+  } finally {
+    for (const obj of hidden) obj.visible = true;
+  }
+};
+composer.addPass(gtaoPass);
+
+const bloomPass = new UnrealBloomPass(
+  new THREE.Vector2(window.innerWidth, window.innerHeight),
+  0.14,
+  0.42,
+  0.94
+);
+composer.addPass(bloomPass);
+
+const outputPass = new OutputPass();
+composer.addPass(outputPass);
+
+const fxaaPass = new ShaderPass(FXAAShader);
+function syncFxaaResolution() {
+  const dpr = renderer.getPixelRatio();
+  fxaaPass.material.uniforms.resolution.value.set(
+    1 / (window.innerWidth * dpr),
+    1 / (window.innerHeight * dpr)
+  );
+}
+syncFxaaResolution();
+composer.addPass(fxaaPass);
 
 // Collect all interactive controllers by id
 const interactiveMap = new Map();
@@ -77,7 +185,6 @@ const navigator = createNavigator(camera, canvas, roomRig.doors, roomRig.ceiling
   syncModeUI();
 });
 
-// Start cleanly at the Entrance looking diagonally across the studio
 const startVp = VIEWPOINTS[0];
 navigator.snapToViewpoint(startVp);
 
@@ -87,6 +194,7 @@ const minimap = createMinimap(minimapCanvas, (wx, wz) => {
   syncViewpointButtons();
   navigator.walkToPoint(wx, wz);
 });
+minimap.render(camera.position.x, camera.position.z, navigator.getYaw(), navigator.getMode());
 
 // --- UI BINDINGS ---
 function syncViewpointButtons() {
@@ -154,9 +262,33 @@ function syncCurtainsBtn() {
 }
 syncCurtainsBtn();
 
+let shadowAnimTimer = 0.9;
+
 btnCurtains.addEventListener('click', () => {
   roomRig.curtainsRig.toggle();
   syncCurtainsBtn();
+  shadowAnimTimer = 1.0;
+  lighting.requestEnvRefresh();
+});
+
+btnArchviz.addEventListener('click', () => {
+  archvizEnabled = !archvizEnabled;
+  if (archvizEnabled) {
+    gtaoPass.enabled = true;
+    slowFrameStreak = 0;
+  }
+  btnArchviz.classList.toggle('active', archvizEnabled);
+  btnArchviz.textContent = archvizEnabled ? 'Rendu Studio HD' : 'Mode fluide';
+});
+
+btnSnapshot.addEventListener('click', () => {
+  renderer.shadowMap.needsUpdate = true;
+  renderCurrentFrame();
+  const dataUrl = canvas.toDataURL('image/png');
+  const a = document.createElement('a');
+  a.href = dataUrl;
+  a.download = `studio-rendu-${lighting.getPreset()}.png`;
+  a.click();
 });
 
 btnDimensions.addEventListener('click', () => {
@@ -173,6 +305,7 @@ for (const btn of lightButtons) {
   btn.addEventListener('click', () => {
     const preset = btn.dataset.light;
     lighting.setPreset(preset);
+    shadowAnimTimer = 1.1;
     for (const b of lightButtons) {
       b.classList.toggle('active', b === btn);
     }
@@ -218,7 +351,6 @@ function updateHover(clientX, clientY) {
       obj = obj.parent;
     }
     if (foundId) break;
-    // Stop at solid walls/opaque blockers
     if (h.object.material && !h.object.material.transparent) break;
   }
 
@@ -238,6 +370,8 @@ function triggerInteract(id) {
   if (!ctrl) return;
   ctrl.toggle();
   if (id === 'curtains') syncCurtainsBtn();
+  shadowAnimTimer = 0.9;
+  lighting.requestEnvRefresh();
   updateHover();
 }
 
@@ -287,19 +421,48 @@ window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  composer.setSize(window.innerWidth, window.innerHeight);
+  gtaoPass.setSize(
+    Math.max(320, Math.floor(window.innerWidth * 0.65)),
+    Math.max(240, Math.floor(window.innerHeight * 0.65))
+  );
+  bloomPass.setSize(window.innerWidth, window.innerHeight);
+  syncFxaaResolution();
 });
 
-// --- ANIMATION LOOP ---
+// --- ANIMATION LOOP WITH ADAPTIVE GPU WATCHDOG ---
 const clock = new THREE.Clock();
 let lastRoom = '';
+let slowFrameStreak = 0;
+
+function renderCurrentFrame() {
+  if (archvizEnabled) {
+    composer.render();
+  } else {
+    renderer.render(scene, camera);
+  }
+}
+
+function scheduleNextFrame(lastFrameMs) {
+  if (lastFrameMs > 65) {
+    setTimeout(() => requestAnimationFrame(animate), 24);
+  } else {
+    requestAnimationFrame(animate);
+  }
+}
 
 function animate() {
-  requestAnimationFrame(animate);
+  const t0 = performance.now();
   const dt = Math.min(0.05, clock.getDelta());
   const elapsed = clock.elapsedTime;
 
   navigator.update(dt);
-  lighting.update(dt);
+  lighting.update(dt, refreshStudioIBL);
+
+  if (shadowAnimTimer > 0) {
+    shadowAnimTimer -= dt;
+    renderer.shadowMap.needsUpdate = true;
+  }
 
   for (const d of roomRig.doors) d.update(dt);
   roomRig.windowRig.update(dt);
@@ -307,7 +470,6 @@ function animate() {
   furnitureRig.armoireCtrl.update(dt);
   furnitureRig.tvCtrl.update(dt, elapsed);
 
-  // Update active room label
   const curRoom =
     navigator.getMode() === 'orbit'
       ? 'Vue maquette'
@@ -327,12 +489,25 @@ function animate() {
   }
 
   minimap.render(camera.position.x, camera.position.z, navigator.getYaw(), navigator.getMode());
-  renderer.render(scene, camera);
+  renderCurrentFrame();
+
+  const frameMs = performance.now() - t0;
+  if (archvizEnabled && gtaoPass.enabled && frameMs > 180) {
+    slowFrameStreak += 1;
+    if (slowFrameStreak >= 3) {
+      // Automatically keep UI responsive on software/low-end GPUs
+      gtaoPass.enabled = false;
+    }
+  } else {
+    slowFrameStreak = 0;
+  }
+
+  scheduleNextFrame(frameMs);
 }
 
-animate();
+// Defer first frame to allow immediate DOM paint & non-blocking page load
+requestAnimationFrame(animate);
 
-// Expose clean debug hook for Playwright inspection if needed
 window.__STUDIO_APP__ = {
   navigator,
   lighting,

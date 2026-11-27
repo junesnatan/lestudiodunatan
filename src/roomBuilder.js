@@ -56,7 +56,6 @@ function buildDoor(cfg, materials) {
   const frameDepth = ROOM.intWallT + 0.028;
   const frameW = 0.042;
 
-  // Door frame jambs & header
   const leftJamb = new THREE.Mesh(
     new THREE.BoxGeometry(frameW, cfg.height + frameW, frameDepth),
     materials.doorFrame
@@ -84,13 +83,17 @@ function buildDoor(cfg, materials) {
   group.add(topJamb);
 
   // Brass threshold
-  const thresh = new THREE.Mesh(
-    new THREE.BoxGeometry(cfg.width, 0.008, 0.07),
-    materials.brass
-  );
-  thresh.position.set((cfg.xMin + cfg.xMax) / 2, 0.004, cfg.z);
+  const thresh = new THREE.Mesh(new THREE.BoxGeometry(cfg.width, 0.006, 0.07), materials.brass);
+  thresh.position.set((cfg.xMin + cfg.xMax) / 2, 0.003, cfg.z);
   thresh.receiveShadow = true;
   group.add(thresh);
+
+  // Architectural hinge barrels (paumelles)
+  for (const hy of [0.34, 1.05, 1.78]) {
+    const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.008, 0.008, 0.075, 10), materials.chrome);
+    hinge.position.set(cfg.hingeX, hy, cfg.z - 0.02);
+    group.add(hinge);
+  }
 
   // Articulated pivot at hinge edge
   const pivot = new THREE.Group();
@@ -112,7 +115,6 @@ function buildDoor(cfg, materials) {
   leafMesh.userData.interactId = cfg.id;
   pivot.add(leafMesh);
 
-  // Subtle recessed architectural trim panels on both sides of door leaf
   for (const py of [0.55, 1.48]) {
     const pH = py < 1 ? 0.68 : 0.82;
     const panel = new THREE.Mesh(
@@ -124,20 +126,13 @@ function buildDoor(cfg, materials) {
     pivot.add(panel);
   }
 
-  // Brass lever handles on both faces
   const handleX = dir * (leafW - 0.075);
   for (const side of [-1, 1]) {
-    const plate = new THREE.Mesh(
-      new THREE.BoxGeometry(0.036, 0.14, 0.008),
-      materials.brass
-    );
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.036, 0.14, 0.008), materials.brass);
     plate.position.set(handleX, 1.02, side * (leafT / 2 + 0.004));
     pivot.add(plate);
 
-    const neck = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.009, 0.009, 0.036, 12),
-      materials.brass
-    );
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.036, 12), materials.brass);
     neck.rotation.x = Math.PI / 2;
     neck.position.set(handleX, 1.04, side * (leafT / 2 + 0.022));
     pivot.add(neck);
@@ -181,7 +176,6 @@ function buildSlidingWindow(materials) {
   const winH = cfg.topY - cfg.sillY;
   const group = new THREE.Group();
 
-  // Oak interior windowsill
   const sill = new THREE.Mesh(
     new RoundedBoxGeometry(winW + 0.08, 0.036, 0.24, 2, 0.005),
     materials.oak
@@ -191,7 +185,6 @@ function buildSlidingWindow(materials) {
   sill.receiveShadow = true;
   group.add(sill);
 
-  // Outer perimeter aluminum frame
   const fT = 0.045;
   const frameDepth = 0.12;
   const frameZ = cfg.z + 0.07;
@@ -201,7 +194,6 @@ function buildSlidingWindow(materials) {
   addWallBox(group, materials.windowFrame, cfg.xMin, cfg.xMax, cfg.topY - fT, cfg.topY, frameZ - frameDepth / 2, frameZ + frameDepth / 2);
   addWallBox(group, materials.windowFrame, cfg.xMin, cfg.xMax, cfg.sillY + 0.02, cfg.sillY + 0.02 + fT, frameZ - frameDepth / 2, frameZ + frameDepth / 2);
 
-  // Two glass sliding panels (left outer track, right inner track)
   const panelW = (winW - fT * 2) * 0.52;
   const panelH = winH - fT * 2 - 0.02;
   const panelY = cfg.sillY + 0.02 + fT + panelH / 2;
@@ -210,7 +202,6 @@ function buildSlidingWindow(materials) {
     const sash = new THREE.Group();
     sash.position.set(0, panelY, zPos);
     const bar = 0.036;
-    // Top / bottom / left / right rails
     for (const rail of [
       addWallBox(sash, materials.windowFrame, -panelW / 2, panelW / 2, panelH / 2 - bar, panelH / 2, -0.018, 0.018),
       addWallBox(sash, materials.windowFrame, -panelW / 2, panelW / 2, -panelH / 2, -panelH / 2 + bar, -0.018, 0.018),
@@ -226,6 +217,7 @@ function buildSlidingWindow(materials) {
     );
     glass.castShadow = false;
     glass.userData.interactId = cfg.id;
+    glass.userData.skipAO = true;
     sash.add(glass);
 
     if (isMovable) {
@@ -290,7 +282,6 @@ function buildOutlet(outletCfg, materials) {
   recess.userData.interactId = outletCfg.id;
   group.add(recess);
 
-  // French Type-E holes + earth pin + plugged angled plug
   const earthPin = new THREE.Mesh(
     new THREE.CylinderGeometry(0.0022, 0.0022, 0.012, 8),
     materials.brass
@@ -319,21 +310,19 @@ function buildPowerCable(points, mat) {
 }
 
 function createPleatedCurtainGeometry(width, height, folds, depthAmp, anchorSide = 'left') {
-  const geo = new THREE.PlaneGeometry(width, height, 68, 22);
+  const geo = new THREE.PlaneGeometry(width, height, 72, 24);
   const pos = geo.attributes.position;
   for (let i = 0; i < pos.count; i++) {
-    const rawX = pos.getX(i); // -width/2 .. +width/2
-    const rawY = pos.getY(i); // -height/2 .. +height/2
-    const u = (rawX + width / 2) / width; // 0..1 across width
-    const v = 1 - (rawY + height / 2) / height; // 0 at top rod, 1 at bottom hem
+    const rawX = pos.getX(i);
+    const rawY = pos.getY(i);
+    const u = (rawX + width / 2) / width;
+    const v = 1 - (rawY + height / 2) / height;
 
-    // Shift origin to anchor edge (0..width for left, -width..0 for right)
     const anchoredX = anchorSide === 'left' ? u * width : (u - 1) * width;
-    // Slight natural expansion toward the bottom hem
-    const flare = 1 + 0.04 * v;
+    const flare = 1 + 0.042 * v;
     const wavePhase = u * folds * Math.PI * 2;
-    const waveDepth = Math.sin(wavePhase) * depthAmp * (0.62 + 0.38 * Math.sin(v * Math.PI * 0.85));
-    // Gentle pinch at top grommets + subtle gravity drape
+    const multiFold = Math.sin(wavePhase) + 0.24 * Math.sin(wavePhase * 2.0 + 0.55);
+    const waveDepth = multiFold * depthAmp * (0.60 + 0.40 * Math.sin(v * Math.PI * 0.85));
     const topPinch = (1 - v) * 0.008 * Math.cos(wavePhase);
 
     pos.setXYZ(i, anchoredX * flare + topPinch, rawY, waveDepth);
@@ -349,9 +338,8 @@ function buildCurtains(textures, materials) {
   const xStart = 0.14;
   const xEnd = 2.72;
   const rodSpan = xEnd - xStart;
-  const centerX = (xStart + xEnd) / 2; // 1.43
+  const centerX = (xStart + xEnd) / 2;
 
-  // Matte-black curtain rod + brass finials + 3 wall brackets
   const mainRod = new THREE.Mesh(
     new THREE.CylinderGeometry(0.011, 0.011, rodSpan + 0.12, 14),
     materials.windowFrame
@@ -381,27 +369,35 @@ function buildCurtains(textures, materials) {
     group.add(rosette);
   }
 
-  // 4 tailored wave-pleat curtains:
-  // Emerald (left) | Beige (center-left) | Beige (center-right) | Emerald (right)
   const drapeH = 1.67;
   const drapeCenterY = rodY - 0.02 - drapeH / 2;
-  const quarterW = rodSpan / 4 + 0.018; // ~0.663 m each with slight seam overlap when closed
+  const quarterW = rodSpan / 4 + 0.018;
 
-  const beigeMat = new THREE.MeshStandardMaterial({
+  const beigeMat = new THREE.MeshPhysicalMaterial({
     map: textures.curtainBeige.map,
-    bumpMap: textures.curtainBeige.bumpMap,
-    bumpScale: 0.008,
+    normalMap: textures.curtainBeige.normalMap,
+    normalScale: new THREE.Vector2(0.55, 0.55),
     roughness: 0.88,
     metalness: 0.0,
+    sheen: 0.9,
+    sheenRoughness: 0.65,
+    sheenColor: new THREE.Color(0xf8f0e2),
+    emissive: new THREE.Color(0xffebd0),
+    emissiveIntensity: 0.04,
     side: THREE.DoubleSide,
   });
 
-  const emeraldMat = new THREE.MeshStandardMaterial({
+  const emeraldMat = new THREE.MeshPhysicalMaterial({
     map: textures.curtainEmerald.map,
-    bumpMap: textures.curtainEmerald.bumpMap,
-    bumpScale: 0.008,
+    normalMap: textures.curtainEmerald.normalMap,
+    normalScale: new THREE.Vector2(0.55, 0.55),
     roughness: 0.86,
     metalness: 0.0,
+    sheen: 0.9,
+    sheenRoughness: 0.62,
+    sheenColor: new THREE.Color(0x5fa891),
+    emissive: new THREE.Color(0x1b4739),
+    emissiveIntensity: 0.02,
     side: THREE.DoubleSide,
   });
 
@@ -430,16 +426,16 @@ function buildCurtains(textures, materials) {
   }
 
   const panels = [
-    makePanel(xStart, 'left', emeraldMat, rodZ - 0.003, 0.48),       // Émeraude gauche
-    makePanel(centerX - 0.005, 'right', beigeMat, rodZ + 0.003, 0.46), // Beige milieu gauche
-    makePanel(centerX + 0.005, 'left', beigeMat, rodZ + 0.003, 0.46),  // Beige milieu droit
-    makePanel(xEnd, 'right', emeraldMat, rodZ - 0.003, 0.48),        // Émeraude droite
+    makePanel(xStart, 'left', emeraldMat, rodZ - 0.003, 0.48),
+    makePanel(centerX - 0.005, 'right', beigeMat, rodZ + 0.003, 0.46),
+    makePanel(centerX + 0.005, 'left', beigeMat, rodZ + 0.003, 0.46),
+    makePanel(xEnd, 'right', emeraldMat, rodZ - 0.003, 0.48),
   ];
 
   function syncPanels(openRatio) {
     for (const p of panels) {
       const curScaleX = 1 - openRatio * (1 - p.openScale);
-      const curScaleZ = 1 + openRatio * 0.32;
+      const curScaleZ = 1 + openRatio * 0.34;
       p.mesh.scale.set(curScaleX, 1, curScaleZ);
 
       const dir = p.anchorSide === 'left' ? 1 : -1;
@@ -457,6 +453,8 @@ function buildCurtains(textures, materials) {
     id: 'curtains',
     label: 'Rideaux (2 beiges, 2 émeraude)',
     group,
+    beigeMat,
+    emeraldMat,
     isOpen: true,
     openRatio: 1,
     targetRatio: 1,
@@ -472,66 +470,119 @@ function buildCurtains(textures, materials) {
   };
 }
 
+function createSkyShaderMaterial() {
+  const uniforms = {
+    uZenithColor: { value: new THREE.Color(0x6da4d6) },
+    uHorizonColor: { value: new THREE.Color(0xdfeaf4) },
+    uSunColor: { value: new THREE.Color(0xfff1d4) },
+    uSunDir: { value: new THREE.Vector3(-0.26, 0.48, 0.84).normalize() },
+  };
+  const mat = new THREE.ShaderMaterial({
+    uniforms,
+    side: THREE.BackSide,
+    depthWrite: false,
+    vertexShader: `
+      varying vec3 vWorldPos;
+      void main() {
+        vec4 wp = modelMatrix * vec4(position, 1.0);
+        vWorldPos = wp.xyz;
+        gl_Position = projectionMatrix * viewMatrix * wp;
+      }
+    `,
+    fragmentShader: `
+      uniform vec3 uZenithColor;
+      uniform vec3 uHorizonColor;
+      uniform vec3 uSunColor;
+      uniform vec3 uSunDir;
+      varying vec3 vWorldPos;
+      void main() {
+        vec3 dir = normalize(vWorldPos);
+        float h = clamp(dir.y * 1.15 + 0.08, 0.0, 1.0);
+        vec3 col = mix(uHorizonColor, uZenithColor, pow(h, 0.65));
+        float sunAmt = max(dot(dir, normalize(uSunDir)), 0.0);
+        col += uSunColor * pow(sunAmt, 16.0) * 0.45;
+        col += uSunColor * pow(sunAmt, 180.0) * 1.1;
+        gl_FragColor = vec4(col, 1.0);
+      }
+    `,
+  });
+  return { mat, uniforms };
+}
+
 export function buildRoom(textures) {
   const root = new THREE.Group();
   const interactables = [];
 
   const materials = {
-    darkTile: new THREE.MeshStandardMaterial({
+    darkTile: new THREE.MeshPhysicalMaterial({
       map: textures.darkTile.map,
-      bumpMap: textures.darkTile.bumpMap,
-      bumpScale: 0.008,
+      normalMap: textures.darkTile.normalMap,
+      normalScale: new THREE.Vector2(0.55, 0.55),
       roughnessMap: textures.darkTile.roughnessMap,
-      roughness: 0.48,
-      metalness: 0.08,
+      roughness: 0.44,
+      metalness: 0.06,
+      clearcoat: 0.24,
+      clearcoatRoughness: 0.34,
+      envMapIntensity: 1.35,
     }),
     terrazzo: new THREE.MeshStandardMaterial({
       map: textures.terrazzo.map,
+      normalMap: textures.terrazzo.normalMap,
+      normalScale: new THREE.Vector2(0.4, 0.4),
       roughnessMap: textures.terrazzo.roughnessMap,
-      roughness: 0.48,
-      metalness: 0.05,
-    }),
-    tileMint: new THREE.MeshStandardMaterial({
-      map: textures.tileMint.map,
-      bumpMap: textures.tileMint.bumpMap,
-      bumpScale: 0.006,
-      roughnessMap: textures.tileMint.roughnessMap,
-      roughness: 0.36,
+      roughness: 0.44,
       metalness: 0.04,
+      envMapIntensity: 1.1,
+    }),
+    tileMint: new THREE.MeshPhysicalMaterial({
+      map: textures.tileMint.map,
+      normalMap: textures.tileMint.normalMap,
+      normalScale: new THREE.Vector2(0.45, 0.45),
+      roughnessMap: textures.tileMint.roughnessMap,
+      roughness: 0.34,
+      metalness: 0.04,
+      clearcoat: 0.2,
+      clearcoatRoughness: 0.28,
+      envMapIntensity: 1.2,
     }),
     wall: new THREE.MeshStandardMaterial({
-      color: 0xf3eee6,
+      color: 0xf1ece3,
       map: textures.plaster.map,
-      bumpMap: textures.plaster.bumpMap,
-      bumpScale: 0.003,
-      roughness: 0.86,
+      normalMap: textures.plaster.normalMap,
+      normalScale: new THREE.Vector2(0.22, 0.22),
+      roughness: 0.88,
       metalness: 0.0,
+      envMapIntensity: 0.5,
     }),
     westPaintWall: new THREE.MeshStandardMaterial({
-      color: 0xe3dbd0,
+      color: 0xe2dad0,
       map: textures.plaster.map,
-      bumpMap: textures.plaster.bumpMap,
-      bumpScale: 0.003,
-      roughness: 0.85,
+      normalMap: textures.plaster.normalMap,
+      normalScale: new THREE.Vector2(0.22, 0.22),
+      roughness: 0.87,
       metalness: 0.0,
+      envMapIntensity: 0.5,
     }),
     accentWall: new THREE.MeshStandardMaterial({
       color: 0x2e6f5b,
       map: textures.plaster.map,
-      bumpMap: textures.plaster.bumpMap,
-      bumpScale: 0.0035,
+      normalMap: textures.plaster.normalMap,
+      normalScale: new THREE.Vector2(0.24, 0.24),
       roughness: 0.85,
       metalness: 0.0,
+      envMapIntensity: 0.55,
     }),
     baseboard: new THREE.MeshStandardMaterial({
       color: 0xfbf9f5,
-      roughness: 0.45,
+      roughness: 0.42,
       metalness: 0.02,
+      envMapIntensity: 0.7,
     }),
     ceiling: new THREE.MeshStandardMaterial({
       color: 0xf8f6f2,
-      roughness: 0.92,
+      roughness: 0.94,
       metalness: 0.0,
+      envMapIntensity: 0.4,
     }),
     doorFrame: new THREE.MeshStandardMaterial({
       color: 0xfaf7f2,
@@ -545,44 +596,55 @@ export function buildRoom(textures) {
     }),
     entranceDoor: new THREE.MeshStandardMaterial({
       map: textures.woodWalnut.map,
-      roughness: 0.46,
+      normalMap: textures.woodWalnut.normalMap,
+      normalScale: new THREE.Vector2(0.35, 0.35),
+      roughness: 0.44,
       metalness: 0.04,
     }),
     doorInset: new THREE.MeshStandardMaterial({
       color: 0xe9e2d7,
       roughness: 0.52,
     }),
-    oak: new THREE.MeshStandardMaterial({
+    oak: new THREE.MeshPhysicalMaterial({
       map: textures.woodOak.map,
-      bumpMap: textures.woodOak.bumpMap,
-      bumpScale: 0.004,
-      roughness: 0.48,
-      metalness: 0.04,
+      normalMap: textures.woodOak.normalMap,
+      normalScale: new THREE.Vector2(0.35, 0.35),
+      roughnessMap: textures.woodOak.roughnessMap,
+      roughness: 0.46,
+      metalness: 0.03,
+      clearcoat: 0.1,
+      clearcoatRoughness: 0.42,
+      envMapIntensity: 1.0,
     }),
     brass: new THREE.MeshStandardMaterial({
       color: 0xc9a15a,
-      roughness: 0.28,
-      metalness: 0.85,
+      roughness: 0.24,
+      metalness: 0.9,
+      envMapIntensity: 1.4,
     }),
     chrome: new THREE.MeshStandardMaterial({
-      color: 0xd9dee3,
-      roughness: 0.18,
-      metalness: 0.9,
+      color: 0xdce1e6,
+      roughness: 0.15,
+      metalness: 0.94,
+      envMapIntensity: 1.5,
     }),
     windowFrame: new THREE.MeshStandardMaterial({
-      color: 0x2a2e33,
-      roughness: 0.36,
-      metalness: 0.65,
+      color: 0x25292e,
+      roughness: 0.34,
+      metalness: 0.72,
+      envMapIntensity: 1.1,
     }),
     glass: new THREE.MeshPhysicalMaterial({
-      color: 0xdff0f6,
+      color: 0xe6f4fa,
       transparent: true,
-      opacity: 0.22,
-      roughness: 0.06,
-      metalness: 0.05,
+      opacity: 0.18,
+      roughness: 0.04,
+      metalness: 0.06,
       reflectivity: 0.95,
+      ior: 1.5,
       side: THREE.DoubleSide,
       depthWrite: false,
+      envMapIntensity: 1.6,
     }),
     outletPlastic: new THREE.MeshStandardMaterial({
       color: 0xf4f2ed,
@@ -636,18 +698,13 @@ export function buildRoom(textures) {
   const E = ROOM.extWallT;
   const I = ROOM.intWallT / 2;
 
-  // West exterior wall (x: -E..0) — warm cashmere/greige paint in Studio
   addWallBox(root, materials.westPaintWall, -E, 0, 0, H, 0, ROOM.studioDepth + E);
   addWallBox(root, materials.wall, -E, 0, 0, H, -ROOM.backDepth - E, 0);
-  // East exterior wall (x: W..W+E) — mineral sage-eucalyptus feature paint in Studio
   addWallBox(root, materials.accentWall, W, W + E, 0, H, 0, ROOM.studioDepth + E);
   addWallBox(root, materials.wall, W, W + E, 0, H, -ROOM.backDepth - E, 0);
-  // North exterior wall (z: -2-E..-2)
   addWallBox(root, materials.wall, 0, W, 0, H, -ROOM.backDepth - E, -ROOM.backDepth);
-  // Kitchen / Douche divider (x = 2.40)
   addWallBox(root, materials.wall, ROOM.kitchenWidth - I, ROOM.kitchenWidth + I, 0, H, -ROOM.backDepth, 0);
 
-  // Studio / Back rooms partition (z = 0, openings for Cuisine & Douche doors)
   const cDoor = OPENINGS.cuisineDoor;
   const dDoor = OPENINGS.doucheDoor;
   addWallBox(root, materials.wall, 0, cDoor.xMin, 0, H, -I, I);
@@ -656,7 +713,6 @@ export function buildRoom(textures) {
   addWallBox(root, materials.wall, dDoor.xMin, dDoor.xMax, dDoor.height, H, -I, I);
   addWallBox(root, materials.wall, dDoor.xMax, W, 0, H, -I, I);
 
-  // South exterior wall (z = 4.00..4.14, opening for Fenêtre coulissante & Entrée)
   const win = OPENINGS.window;
   const eDoor = OPENINGS.entreeDoor;
   addWallBox(root, materials.wall, 0, win.xMin, 0, H, ROOM.studioDepth, ROOM.studioDepth + E);
@@ -666,7 +722,6 @@ export function buildRoom(textures) {
   addWallBox(root, materials.wall, eDoor.xMin, eDoor.xMax, eDoor.height, H, ROOM.studioDepth, ROOM.studioDepth + E);
   addWallBox(root, materials.wall, eDoor.xMax, W, 0, H, ROOM.studioDepth, ROOM.studioDepth + E);
 
-  // Douche tiled walls (wet zone + vanity splashback)
   addWallBox(root, materials.tileMint, 2.45, 3.998, 0, 2.45, -2.0, -1.992, false, true);
   addWallBox(root, materials.tileMint, 3.992, 4.0, 0, 2.45, -2.0, -1.02, false, true);
   addWallBox(root, materials.tileMint, 3.992, 4.0, 0, 1.35, -1.02, -0.05, false, true);
@@ -680,7 +735,26 @@ export function buildRoom(textures) {
   addBaseboard(root, materials.baseboard, 0, eDoor.xMin, ROOM.studioDepth - 0.014, ROOM.studioDepth);
   addBaseboard(root, materials.baseboard, eDoor.xMax, W, ROOM.studioDepth - 0.014, ROOM.studioDepth);
 
-  // --- CEILING GROUP (hidden in Vue maquette) ---
+  // --- SUBTLE FLOOR/WALL AMBIENT GROUNDING STRIPS ---
+  const cornerShadeMat = new THREE.MeshBasicMaterial({
+    map: textures.cornerShade,
+    transparent: true,
+    opacity: 0.72,
+    depthWrite: false,
+  });
+  function addCornerAoStrip(x, z, len, rotY) {
+    const strip = new THREE.Mesh(new THREE.PlaneGeometry(len, 0.28), cornerShadeMat);
+    strip.position.set(x, 0.14, z);
+    strip.rotation.y = rotY;
+    strip.userData.skipAO = true;
+    root.add(strip);
+  }
+  addCornerAoStrip(0.016, 2.0, 3.92, Math.PI / 2);
+  addCornerAoStrip(3.984, 2.0, 3.92, -Math.PI / 2);
+  addCornerAoStrip(cDoor.xMin / 2, 0.06, cDoor.xMin, 0);
+  addCornerAoStrip(win.xMax / 2, 3.984, win.xMax, Math.PI);
+
+  // --- CEILING GROUP ---
   const ceilingGroup = new THREE.Group();
   addWallBox(
     ceilingGroup,
@@ -695,14 +769,12 @@ export function buildRoom(textures) {
     true
   );
 
-  // Subtle crown molding in Studio
   const moldingH = 0.05;
   addWallBox(ceilingGroup, materials.baseboard, 0, 0.03, H - moldingH, H, 0.045, ROOM.studioDepth);
   addWallBox(ceilingGroup, materials.baseboard, W - 0.03, W, H - moldingH, H, 0.045, ROOM.studioDepth);
   addWallBox(ceilingGroup, materials.baseboard, 0, W, H - moldingH, H, 0.045, 0.075);
   addWallBox(ceilingGroup, materials.baseboard, 0, W, H - moldingH, H, ROOM.studioDepth - 0.03, ROOM.studioDepth);
 
-  // Central woven linen / brass pendant light in Studio
   const pendantCord = new THREE.Mesh(
     new THREE.CylinderGeometry(0.005, 0.005, 0.42, 8),
     materials.cableDark
@@ -710,11 +782,12 @@ export function buildRoom(textures) {
   pendantCord.position.set(2.0, H - 0.21, 2.0);
   ceilingGroup.add(pendantCord);
 
-  const pendantShadeMat = new THREE.MeshStandardMaterial({
+  const pendantShadeMat = new THREE.MeshPhysicalMaterial({
     color: 0xf3ece0,
     emissive: 0xffd296,
     emissiveIntensity: 0.12,
-    roughness: 0.72,
+    roughness: 0.76,
+    sheen: 0.7,
     side: THREE.DoubleSide,
   });
   const pendantShade = new THREE.Mesh(
@@ -734,7 +807,6 @@ export function buildRoom(textures) {
   pendantBulb.position.set(2.0, H - 0.46, 2.0);
   ceilingGroup.add(pendantBulb);
 
-  // Recessed spotlights in Cuisine & Douche
   const spotMats = [];
   for (const [sx, sz] of [
     [1.2, -1.0],
@@ -756,7 +828,7 @@ export function buildRoom(textures) {
   }
   root.add(ceilingGroup);
 
-  // --- DOORS & SLIDING WINDOW ---
+  // --- DOORS, SLIDING WINDOW & 4 CURTAINS ---
   const doors = [
     buildDoor(OPENINGS.cuisineDoor, materials),
     buildDoor(OPENINGS.doucheDoor, materials),
@@ -771,12 +843,35 @@ export function buildRoom(textures) {
   root.add(windowRig.group);
   interactables.push(windowRig);
 
-  // --- INTERACTIVE PLEATED CURTAINS & VOILAGE ON SLIDING WINDOW ---
   const curtainsRig = buildCurtains(textures, materials);
   root.add(curtainsRig.group);
   interactables.push(curtainsRig);
 
-  // --- REAL PLANAR MIRROR (left wall north: x=0.018, z=0.56) ---
+  // --- VOLUMETRIC WINDOW LIGHT SHAFTS ---
+  const sunShaftsMat = new THREE.MeshBasicMaterial({
+    map: textures.lightShaft,
+    color: 0xfff1d6,
+    transparent: true,
+    opacity: 0.14,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const sunShaftsGroup = new THREE.Group();
+  for (const [sx, rotY] of [
+    [0.86, 0.18],
+    [2.02, 0.16],
+  ]) {
+    const beam = new THREE.Mesh(new THREE.PlaneGeometry(0.95, 2.85), sunShaftsMat);
+    beam.position.set(sx, 1.32, 2.85);
+    beam.rotation.x = -0.82;
+    beam.rotation.y = rotY;
+    beam.userData.skipAO = true;
+    sunShaftsGroup.add(beam);
+  }
+  root.add(sunShaftsGroup);
+
+  // --- REAL PLANAR MIRROR ---
   const mirrorGroup = new THREE.Group();
   const mirrorW = 0.72;
   const mirrorH = 1.62;
@@ -790,9 +885,10 @@ export function buildRoom(textures) {
   });
   reflector.position.copy(mirrorPos);
   reflector.rotation.y = Math.PI / 2;
+  reflector.userData.skipAO = true;
+  reflector.userData.isMirror = true;
   mirrorGroup.add(reflector);
 
-  // Warm oak & brass mirror frame
   const mirrorBack = new THREE.Mesh(
     new RoundedBoxGeometry(0.02, mirrorH + 0.05, mirrorW + 0.05, 2, 0.006),
     materials.oak
@@ -804,10 +900,8 @@ export function buildRoom(textures) {
 
   // --- ELECTRICAL OUTLETS & CABLES ---
   for (const o of OUTLETS) {
-    const outlet = buildOutlet(o, materials);
-    root.add(outlet);
+    root.add(buildOutlet(o, materials));
   }
-  // Power cord from TV outlet (0.01, 0.34, 2.00) into Meuble TV / TV
   root.add(
     buildPowerCable(
       [
@@ -819,37 +913,34 @@ export function buildRoom(textures) {
       materials.cableDark
     )
   );
-  // Power cord from Bureau outlet (1.10, 0.34, 3.98) up to desk
   root.add(
     buildPowerCable(
       [
         [1.10, 0.34, 3.97],
-        [1.10, 0.26, 3.90],
-        [1.10, 0.52, 3.84],
-        [1.10, 0.74, 3.82],
+        [1.10, 0.26, 3.88],
+        [1.10, 0.52, 3.82],
+        [1.10, 0.74, 3.78],
       ],
       materials.cableDark
     )
   );
 
-  // --- EXTERIOR COURTYARD & STAIRWELL LANDING ---
+  // --- EXTERIOR COURTYARD & PHYSICAL SKY DOME ---
   const exteriorGroup = new THREE.Group();
-  // Sky dome
-  const skyMat = new THREE.MeshBasicMaterial({ color: 0xb7d5ea, side: THREE.BackSide });
-  const skyDome = new THREE.Mesh(new THREE.SphereGeometry(55, 24, 16), skyMat);
+  const skyShader = createSkyShaderMaterial();
+  const skyDome = new THREE.Mesh(new THREE.SphereGeometry(55, 28, 18), skyShader.mat);
+  skyDome.userData.skipAO = true;
   exteriorGroup.add(skyDome);
 
-  // Ground courtyard below window
   const courtyardFloor = new THREE.Mesh(
     new THREE.PlaneGeometry(36, 26),
-    new THREE.MeshStandardMaterial({ color: 0x7a8072, roughness: 0.92 })
+    new THREE.MeshStandardMaterial({ color: 0x6f7568, roughness: 0.92 })
   );
   courtyardFloor.rotation.x = -Math.PI / 2;
   courtyardFloor.position.set(2.0, -2.4, 14.0);
   courtyardFloor.receiveShadow = true;
   exteriorGroup.add(courtyardFloor);
 
-  // Opposite Parisian limestone building facade across courtyard
   const facadeMesh = new THREE.Mesh(
     new THREE.PlaneGeometry(24, 14),
     new THREE.MeshStandardMaterial({ map: textures.facade, roughness: 0.85 })
@@ -858,8 +949,7 @@ export function buildRoom(textures) {
   facadeMesh.rotation.y = Math.PI;
   exteriorGroup.add(facadeMesh);
 
-  // Courtyard greenery visible from the desk & window
-  const foliageMat = new THREE.MeshStandardMaterial({ color: 0x4b6e49, roughness: 0.82 });
+  const foliageMat = new THREE.MeshStandardMaterial({ color: 0x456844, roughness: 0.8 });
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x5c4738, roughness: 0.9 });
   for (const [tx, tz, scale] of [
     [-0.6, 6.4, 1.05],
@@ -870,12 +960,17 @@ export function buildRoom(textures) {
     trunk.position.set(tx, -0.7, tz);
     exteriorGroup.add(trunk);
 
-    const canopy = new THREE.Mesh(new THREE.DodecahedronGeometry(1.1 * scale, 1), foliageMat);
-    canopy.position.set(tx, 1.35 * scale, tz);
-    exteriorGroup.add(canopy);
+    for (const [ox, oy, oz, rad] of [
+      [0, 1.35, 0, 1.0],
+      [-0.45, 1.05, 0.25, 0.72],
+      [0.48, 1.12, -0.18, 0.75],
+    ]) {
+      const canopy = new THREE.Mesh(new THREE.IcosahedronGeometry(rad * scale, 1), foliageMat);
+      canopy.position.set(tx + ox, oy * scale, tz + oz);
+      exteriorGroup.add(canopy);
+    }
   }
 
-  // Apartment hallway landing outside Entrée door (z: 4.14..5.4, x: 2.7..4.2)
   const hallFloor = new THREE.Mesh(
     new THREE.PlaneGeometry(2.0, 1.5),
     new THREE.MeshStandardMaterial({ color: 0x8f887d, roughness: 0.8 })
@@ -885,13 +980,12 @@ export function buildRoom(textures) {
   hallFloor.receiveShadow = true;
   exteriorGroup.add(hallFloor);
 
-  addWallBox(exteriorGroup, materials.accentWall, 2.55, 4.35, 0, H, 5.45, 5.56, false, true);
-  addWallBox(exteriorGroup, materials.accentWall, 4.25, 4.36, 0, H, 4.14, 5.50, false, true);
-  addWallBox(exteriorGroup, materials.accentWall, 2.55, 2.66, 0, H, 4.14, 5.50, false, true);
-
+  addWallBox(exteriorGroup, materials.westPaintWall, 2.55, 4.35, 0, H, 5.45, 5.56, false, true);
+  addWallBox(exteriorGroup, materials.westPaintWall, 4.25, 4.36, 0, H, 4.14, 5.50, false, true);
+  addWallBox(exteriorGroup, materials.westPaintWall, 2.55, 2.66, 0, H, 4.14, 5.50, false, true);
   root.add(exteriorGroup);
 
-  // --- TOGGLEABLE 3D ARCHITECTURAL GUIDES ("Cotes 4 m & Prises") ---
+  // --- TOGGLEABLE 3D ARCHITECTURAL GUIDES ---
   const guidesGroup = new THREE.Group();
   guidesGroup.visible = false;
   const lineMat = new THREE.LineBasicMaterial({ color: 0xd89b56 });
@@ -899,13 +993,16 @@ export function buildRoom(textures) {
   function addDimLine(p1, p2, labelText, labelOffset = [0, 0.14, 0]) {
     const pts = [new THREE.Vector3(...p1), new THREE.Vector3(...p2)];
     const geo = new THREE.BufferGeometry().setFromPoints(pts);
-    guidesGroup.add(new THREE.Line(geo, lineMat));
+    const line = new THREE.Line(geo, lineMat);
+    line.userData.skipAO = true;
+    guidesGroup.add(line);
     const sprite = createTextSprite(labelText);
     sprite.position.set(
       (p1[0] + p2[0]) / 2 + labelOffset[0],
       (p1[1] + p2[1]) / 2 + labelOffset[1],
       (p1[2] + p2[2]) / 2 + labelOffset[2]
     );
+    sprite.userData.skipAO = true;
     guidesGroup.add(sprite);
   }
 
@@ -920,21 +1017,24 @@ export function buildRoom(textures) {
     );
     marker.position.set(o.x + (o.x < 0.5 ? 0.03 : 0), o.y, o.z - (o.z > 3.5 ? 0.03 : 0));
     marker.rotation.y = o.rotY;
+    marker.userData.skipAO = true;
     guidesGroup.add(marker);
 
     const lbl = createTextSprite('Prise électrique', 'rgba(180, 48, 38, 0.9)');
     lbl.scale.set(0.62, 0.16, 1);
     lbl.position.set(o.x + (o.x < 0.5 ? 0.16 : 0), o.y + 0.24, o.z - (o.z > 3.5 ? 0.12 : 0));
+    lbl.userData.skipAO = true;
     guidesGroup.add(lbl);
   }
-
   root.add(guidesGroup);
 
   return {
     root,
     ceilingGroup,
     exteriorGroup,
-    skyMat,
+    skyUniforms: skyShader.uniforms,
+    sunShaftsMat,
+    sunShaftsGroup,
     pendantShadeMat,
     pendantBulbMat,
     spotMats,

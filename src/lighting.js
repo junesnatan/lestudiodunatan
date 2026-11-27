@@ -1,62 +1,78 @@
 import * as THREE from 'three';
+import { RectAreaLightUniformsLib } from 'three/addons/lights/RectAreaLightUniformsLib.js';
 
 const PRESETS = {
   day: {
-    sky: new THREE.Color(0xb8d7ec),
+    zenith: new THREE.Color(0x5b95cc),
+    horizon: new THREE.Color(0xdbe8f3),
     bg: new THREE.Color(0xaecce0),
-    sunColor: new THREE.Color(0xfff4e0),
-    sunIntensity: 3.15,
+    sunColor: new THREE.Color(0xfff4e2),
+    sunIntensity: 3.1,
     sunPos: new THREE.Vector3(-2.4, 4.8, 8.6),
-    hemiSky: new THREE.Color(0xddebf7),
-    hemiGround: new THREE.Color(0x9a846c),
-    hemiIntensity: 0.78,
-    pendantIntensity: 0.35,
-    kitchenIntensity: 0.55,
-    bathIntensity: 0.55,
-    sconceIntensity: 0.12,
-    deskLampMax: 1.45,
-    exposure: 1.08,
-  },
-  golden: {
-    sky: new THREE.Color(0xdba77b),
-    bg: new THREE.Color(0xc79268),
-    sunColor: new THREE.Color(0xffb469),
-    sunIntensity: 2.85,
-    sunPos: new THREE.Vector3(-4.4, 2.55, 8.2),
-    hemiSky: new THREE.Color(0xf6cfa8),
-    hemiGround: new THREE.Color(0x745842),
+    rectColor: new THREE.Color(0xf2f6ff),
+    rectIntensity: 3.4,
+    shaftOpacity: 0.14,
+    hemiSky: new THREE.Color(0xdceaf7),
+    hemiGround: new THREE.Color(0x7d7266),
     hemiIntensity: 0.62,
-    pendantIntensity: 0.95,
-    kitchenIntensity: 1.05,
-    bathIntensity: 0.95,
-    sconceIntensity: 0.45,
-    deskLampMax: 1.65,
+    pendantIntensity: 0.25,
+    kitchenIntensity: 0.65,
+    bathIntensity: 0.65,
+    sconceIntensity: 0.10,
+    deskLampMax: 1.45,
     exposure: 1.06,
   },
+  golden: {
+    zenith: new THREE.Color(0x5d6e8f),
+    horizon: new THREE.Color(0xe6ad7f),
+    bg: new THREE.Color(0xc79268),
+    sunColor: new THREE.Color(0xffb469),
+    sunIntensity: 2.95,
+    sunPos: new THREE.Vector3(-4.4, 2.55, 8.2),
+    rectColor: new THREE.Color(0xffd7b0),
+    rectIntensity: 2.6,
+    shaftOpacity: 0.18,
+    hemiSky: new THREE.Color(0xf4cfa8),
+    hemiGround: new THREE.Color(0x695442),
+    hemiIntensity: 0.54,
+    pendantIntensity: 0.95,
+    kitchenIntensity: 1.15,
+    bathIntensity: 1.05,
+    sconceIntensity: 0.45,
+    deskLampMax: 1.65,
+    exposure: 1.08,
+  },
   night: {
-    sky: new THREE.Color(0x162033),
+    zenith: new THREE.Color(0x0c1322),
+    horizon: new THREE.Color(0x1f2d45),
     bg: new THREE.Color(0x121926),
     sunColor: new THREE.Color(0x7c97c6),
-    sunIntensity: 0.38,
+    sunIntensity: 0.34,
     sunPos: new THREE.Vector3(-2.6, 5.2, 8.8),
-    hemiSky: new THREE.Color(0x2c3b59),
-    hemiGround: new THREE.Color(0x281f18),
-    hemiIntensity: 0.34,
-    pendantIntensity: 2.35,
-    kitchenIntensity: 1.85,
-    bathIntensity: 1.65,
-    sconceIntensity: 1.15,
-    deskLampMax: 1.95,
-    exposure: 1.04,
+    rectColor: new THREE.Color(0x415a85),
+    rectIntensity: 0.45,
+    shaftOpacity: 0.0,
+    hemiSky: new THREE.Color(0x283652),
+    hemiGround: new THREE.Color(0x221b16),
+    hemiIntensity: 0.28,
+    pendantIntensity: 2.55,
+    kitchenIntensity: 1.95,
+    bathIntensity: 1.75,
+    sconceIntensity: 1.25,
+    deskLampMax: 2.0,
+    exposure: 1.05,
   },
 };
 
 export function createLighting(scene, renderer, roomRig, furnitureRig) {
-  let activePreset = 'day';
-  let deskLampUserOverride = null; // null = follow preset, boolean = explicit user toggle
-  let floorLampUserOverride = null;
+  RectAreaLightUniformsLib.init();
 
-  const sunLight = new THREE.DirectionalLight(0xfff4e0, 3.15);
+  let activePreset = 'day';
+  let deskLampUserOverride = null;
+  let floorLampUserOverride = null;
+  let dirtyEnvTimer = 0.05;
+
+  const sunLight = new THREE.DirectionalLight(0xfff4e2, 3.1);
   sunLight.position.copy(PRESETS.day.sunPos);
   sunLight.target.position.set(1.85, 0.4, 1.55);
   sunLight.castShadow = true;
@@ -67,46 +83,45 @@ export function createLighting(scene, renderer, roomRig, furnitureRig) {
   sunLight.shadow.camera.right = 4.2;
   sunLight.shadow.camera.top = 4.2;
   sunLight.shadow.camera.bottom = -4.2;
-  sunLight.shadow.bias = -0.0005;
-  sunLight.shadow.normalBias = 0.02;
+  sunLight.shadow.bias = -0.00045;
+  sunLight.shadow.normalBias = 0.018;
   scene.add(sunLight);
   scene.add(sunLight.target);
 
-  const hemiLight = new THREE.HemisphereLight(0xddebf7, 0x9a846c, 0.78);
+  // Soft rectangular window area light (ArchViz window glow & floor specular streaks)
+  const windowRectLight = new THREE.RectAreaLight(0xf2f6ff, 3.4, 2.30, 1.48);
+  windowRectLight.position.set(1.435, 1.54, 3.98);
+  windowRectLight.lookAt(1.435, 1.25, 0.0);
+  scene.add(windowRectLight);
+
+  const hemiLight = new THREE.HemisphereLight(0xdceaf7, 0x7d7266, 0.62);
   hemiLight.position.set(2.0, 2.65, 1.5);
   scene.add(hemiLight);
 
-  // Studio central warm pendant light
-  const pendantLight = new THREE.PointLight(0xffd7a1, 0.35, 7.2, 1.6);
+  const pendantLight = new THREE.PointLight(0xffd7a1, 0.25, 7.2, 1.6);
   pendantLight.position.set(2.0, 2.12, 2.0);
   scene.add(pendantLight);
 
-  // Desk lamp practical light
   const deskLampLight = new THREE.PointLight(0xffca82, 0.4, 3.2, 1.8);
-  deskLampLight.position.set(0.75, 1.02, 3.60);
+  deskLampLight.position.set(0.75, 1.02, 3.58);
   scene.add(deskLampLight);
 
-  // Standing tripod floor lamp light
   const floorLampLight = new THREE.PointLight(0xffcb84, 0.35, 4.2, 1.7);
   floorLampLight.position.set(0.28, 1.32, 2.95);
   scene.add(floorLampLight);
 
-  // Bed reading sconce light
-  const sconceLight = new THREE.PointLight(0xffc985, 0.12, 3.0, 1.8);
+  const sconceLight = new THREE.PointLight(0xffc985, 0.10, 3.0, 1.8);
   sconceLight.position.set(3.75, 1.24, 1.52);
   scene.add(sconceLight);
 
-  // Kitchen ceiling + under-cabinet light
-  const kitchenLight = new THREE.PointLight(0xffe5bd, 0.55, 4.5, 1.6);
+  const kitchenLight = new THREE.PointLight(0xffe5bd, 0.65, 4.5, 1.6);
   kitchenLight.position.set(1.25, 2.35, -1.15);
   scene.add(kitchenLight);
 
-  // Douche vanity + ceiling light
-  const bathLight = new THREE.PointLight(0xfff0d6, 0.55, 4.2, 1.6);
+  const bathLight = new THREE.PointLight(0xfff0d6, 0.65, 4.2, 1.6);
   bathLight.position.set(3.2, 2.35, -0.95);
   scene.add(bathLight);
 
-  // TV screen ambient bounce light
   const tvGlowLight = new THREE.PointLight(0xe09f68, 0.35, 3.2, 1.8);
   tvGlowLight.position.set(0.38, 0.85, 2.0);
   scene.add(tvGlowLight);
@@ -120,6 +135,7 @@ export function createLighting(scene, renderer, roomRig, furnitureRig) {
     },
     toggle() {
       deskLampUserOverride = !this.isOn;
+      dirtyEnvTimer = 0.08;
       return deskLampUserOverride;
     },
   };
@@ -133,6 +149,7 @@ export function createLighting(scene, renderer, roomRig, furnitureRig) {
     },
     toggle() {
       floorLampUserOverride = !this.isOn;
+      dirtyEnvTimer = 0.08;
       return floorLampUserOverride;
     },
   };
@@ -142,18 +159,43 @@ export function createLighting(scene, renderer, roomRig, furnitureRig) {
     activePreset = name;
     deskLampUserOverride = null;
     floorLampUserOverride = null;
+    dirtyEnvTimer = 0.25;
   }
 
-  function update(dt) {
+  function requestEnvRefresh() {
+    dirtyEnvTimer = 0.22;
+  }
+
+  function update(dt, onRefreshEnv) {
     const p = PRESETS[activePreset];
     const k = Math.min(1, dt * 4.5);
+    const curtainOpen = roomRig.curtainsRig ? roomRig.curtainsRig.openRatio : 1;
 
     scene.background.lerp(p.bg, k);
-    roomRig.skyMat.color.lerp(p.sky, k);
+    roomRig.skyUniforms.uZenithColor.value.lerp(p.zenith, k);
+    roomRig.skyUniforms.uHorizonColor.value.lerp(p.horizon, k);
+    roomRig.skyUniforms.uSunColor.value.lerp(p.sunColor, k);
+    roomRig.skyUniforms.uSunDir.value.copy(p.sunPos).normalize();
 
     sunLight.color.lerp(p.sunColor, k);
-    sunLight.intensity += (p.sunIntensity - sunLight.intensity) * k;
+    const sunTarget = p.sunIntensity * (0.28 + 0.72 * curtainOpen);
+    sunLight.intensity += (sunTarget - sunLight.intensity) * k;
     sunLight.position.lerp(p.sunPos, k);
+
+    windowRectLight.color.lerp(p.rectColor, k);
+    const rectTarget = p.rectIntensity * (0.34 + 0.66 * curtainOpen);
+    windowRectLight.intensity += (rectTarget - windowRectLight.intensity) * k;
+
+    const shaftTarget = p.shaftOpacity * curtainOpen;
+    roomRig.sunShaftsMat.opacity += (shaftTarget - roomRig.sunShaftsMat.opacity) * k;
+    roomRig.sunShaftsGroup.visible = roomRig.sunShaftsMat.opacity > 0.005;
+
+    // Subtle fabric subsurface daylight glow when beige curtains are drawn closed
+    if (roomRig.curtainsRig) {
+      const sunGlow = activePreset === 'night' ? 0.01 : 0.04 + (1 - curtainOpen) * 0.11;
+      roomRig.curtainsRig.beigeMat.emissiveIntensity +=
+        (sunGlow - roomRig.curtainsRig.beigeMat.emissiveIntensity) * k;
+    }
 
     hemiLight.color.lerp(p.hemiSky, k);
     hemiLight.groundColor.lerp(p.hemiGround, k);
@@ -173,7 +215,6 @@ export function createLighting(scene, renderer, roomRig, furnitureRig) {
     const tvTarget = furnitureRig.tvCtrl.isOn ? (activePreset === 'night' ? 0.85 : 0.3) : 0.0;
     tvGlowLight.intensity += (tvTarget - tvGlowLight.intensity) * k;
 
-    // Sync emissive materials on fixtures
     roomRig.pendantShadeMat.emissiveIntensity = 0.08 + pendantLight.intensity * 0.22;
     roomRig.pendantBulbMat.emissiveIntensity = 0.25 + pendantLight.intensity * 0.65;
     for (const sm of roomRig.spotMats) {
@@ -187,6 +228,13 @@ export function createLighting(scene, renderer, roomRig, furnitureRig) {
     furnitureRig.haloMat.emissiveIntensity = 0.35 + bathLight.intensity * 0.45;
 
     renderer.toneMappingExposure += (p.exposure - renderer.toneMappingExposure) * k;
+
+    if (dirtyEnvTimer > 0) {
+      dirtyEnvTimer -= dt;
+      if (dirtyEnvTimer <= 0) {
+        onRefreshEnv?.();
+      }
+    }
   }
 
   scene.background = PRESETS.day.bg.clone();
@@ -194,6 +242,7 @@ export function createLighting(scene, renderer, roomRig, furnitureRig) {
   return {
     setPreset,
     getPreset: () => activePreset,
+    requestEnvRefresh,
     deskLampCtrl,
     floorLampCtrl,
     update,
